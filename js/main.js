@@ -197,7 +197,8 @@
     var mode = "loop", bounceDir = -1, maxShift = 0;
     var gGap = 0, gEdge = 0;
 
-    var baseSpeed = function () { return window.innerWidth < 768 ? 24 : 36; }; // px/s
+    var baseSpeed = function () { return window.innerWidth < 768 ? 30 : 36; }; // px/s
+    var touchDrag = false;
     var kids = function () { return track.children; };
 
     function measure() {
@@ -298,7 +299,7 @@
       if (e.pointerType === "mouse") { decided = true; startDrag(e); }
     });
     function startDrag(e) {
-      gDragging = true; gvel = 0;
+      gDragging = true; gvel = 0; touchDrag = e.pointerType !== "mouse";
       gallery.classList.add("is-dragging");
       try { gallery.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
     }
@@ -306,7 +307,7 @@
       if (e.pointerId !== pid) return;
       if (!decided) {
         var mx = e.clientX - sx, my = e.clientY - sy;
-        if (Math.abs(mx) < 7 && Math.abs(my) < 7) return;
+        if (Math.abs(mx) < 4 && Math.abs(my) < 4) return;
         decided = true;
         if (Math.abs(my) > Math.abs(mx)) { pid = null; return; }   // rolagem vertical
         startDrag(e);
@@ -324,8 +325,8 @@
       gDragging = false; pid = null;
       gallery.classList.remove("is-dragging");
       if (performance.now() - lt > 120) dvel = 0;           // soltou parado
-      gvel = Math.max(-2200, Math.min(2200, dvel));         // inércia natural
-      holdUntil = performance.now() + 1800;
+      gvel = Math.max(-3200, Math.min(3200, dvel * (touchDrag ? 1.15 : 1)));  // inércia natural
+      holdUntil = performance.now() + (touchDrag ? 1000 : 1800);
       gLast = 0;
     }
     gallery.addEventListener("pointerup", endDrag);
@@ -424,34 +425,66 @@
 
   /* ---------- Entradas durante a rolagem (uma vez por elemento) ----------
      Elementos irmãos com .reveal entram em sequência (pequenos intervalos). */
+  var touchUI = window.matchMedia("(hover: none), (pointer: coarse)").matches;
+  var STEP = touchUI ? 50 : 80, MAXI = touchUI ? 2 : 3;   // intervalos curtos entre irmãos
   var reveals = Array.prototype.slice.call(document.querySelectorAll(".reveal"));
   reveals.forEach(function (el) {
     var sibs = Array.prototype.filter.call(el.parentNode.children, function (c) { return c.classList.contains("reveal"); });
-    var idx = Math.min(sibs.indexOf(el), 4);
-    if (idx > 0) el.style.transitionDelay = (idx * 90) + "ms";
+    var idx = Math.min(sibs.indexOf(el), MAXI);
+    if (idx > 0) el.style.transitionDelay = (idx * STEP) + "ms";
   });
   galleryItems.forEach(function (li, i) {
     li.classList.add("reveal", "reveal--media");
-    li.style.transitionDelay = (Math.min(i, 5) * 90) + "ms";
+    li.style.transitionDelay = (Math.min(i, MAXI) * STEP) + "ms";
   });
 
+  // Foto e moldura aparecem JUNTAS: antes de revelar, garante a imagem decodificada
+  // (limite de 600ms — nunca segura o conteúdo por mais tempo que isso).
+  function whenImagesReady(els, cb) {
+    var imgs = [];
+    els.forEach(function (el) { Array.prototype.push.apply(imgs, el.querySelectorAll("img")); });
+    imgs = imgs.filter(function (i) { return !/scdn\.co/.test(i.src); });
+    if (!imgs.length) return cb();
+    var done = false, fin = function () { if (!done) { done = true; cb(); } };
+    Promise.all(imgs.map(function (i) {
+      if (i.loading === "lazy") i.loading = "eager";
+      if (i.decode) return i.decode().catch(function () {});
+      return new Promise(function (r) { if (i.complete) r(); else { i.onload = i.onerror = r; } });
+    })).then(fin);
+    setTimeout(fin, 600);
+  }
   function showAll(list) { list.forEach(function (el) { el.classList.add("is-visible"); }); }
 
   if ("IntersectionObserver" in window && !reduceMotion.matches) {
+    root.classList.add("reveal-on");               // só esconde quando a revelação está garantida
+    // prepara (baixa + decodifica) as fotos um pouco antes de chegarem à tela
+    var pre = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (!en.isIntersecting) return;
+        pre.unobserve(en.target);
+        en.target.querySelectorAll("img").forEach(function (i) {
+          if (/scdn\.co/.test(i.src)) return;
+          if (i.loading === "lazy") i.loading = "eager";
+          if (i.decode) i.decode().catch(function () {});
+        });
+      });
+    }, { rootMargin: "700px 0px 700px 0px" });
     var io = new IntersectionObserver(function (entries) {
       entries.forEach(function (en) {
-        if (en.isIntersecting) {
-          en.target.classList.add("is-visible");
-          io.unobserve(en.target);
-        }
+        if (!en.isIntersecting) return;
+        io.unobserve(en.target);
+        whenImagesReady([en.target], function () { en.target.classList.add("is-visible"); });
       });
-    }, { rootMargin: "0px 0px -8% 0px", threshold: 0.12 });
-    reveals.forEach(function (el) { io.observe(el); });
-    // a galeria entra inteira, foto a foto, quando aparece na tela
+    }, { rootMargin: "0px 0px -6% 0px", threshold: 0.1 });
+    reveals.forEach(function (el) { io.observe(el); if (el.querySelector("img")) pre.observe(el); });
+    // a galeria entra inteira, com as fotos já prontas
     if (gallery && galleryItems.length) {
+      pre.observe(gallery);
       var gio = new IntersectionObserver(function (entries) {
-        if (entries[0].isIntersecting) { showAll(galleryItems); gio.disconnect(); }
-      }, { threshold: 0.2 });
+        if (!entries[0].isIntersecting) return;
+        gio.disconnect();
+        whenImagesReady(galleryItems.slice(0, 4), function () { showAll(galleryItems); });
+      }, { threshold: 0.15 });
       gio.observe(gallery);
     }
   } else {

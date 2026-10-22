@@ -37,6 +37,15 @@ bordas, hovers, partículas, luz ambiente e o fundo 3D (`js/stage3d.js`) leem de
 Sem setas. Desktop: roda do mouse/trackpad com a página no topo (1 gesto = 1 foto; no último slide, ou se o mesmo
 gesto continuar, a página desce normalmente). Touch: deslizar na horizontal (circular). Também: teclado (← →) e autoplay.
 
+## Desempenho no celular
+- Cantos arredondados aplicados também na própria imagem (o WebKit/Safari não recorta filhos durante animações).
+- Contorno Specular estático no touch (sem animação contínua); animado só no desktop, e só nas fotos visíveis.
+- Revelação no scroll: só esconde quando o JS está ativo (`.reveal-on`); fotos são baixadas/decodificadas antes de
+  chegar à tela e o card só aparece com a foto pronta (limite de 600 ms).
+- Hero: troca de 320 ms no touch e 650 ms no desktop (`--hero-dur`); swipe dispara aos 28 px, ainda com o dedo na
+  tela, e um gesto feito durante a animação entra na fila. Laterais escurecidas por opacidade (sem `filter`).
+- Frase do hero com 2 linhas fixas no celular: a troca de fonte não desloca o layout (CLS 0).
+
 ## Onde cada foto é usada (nenhuma se repete)
 | Seção | Arquivo original |
 |---|---|

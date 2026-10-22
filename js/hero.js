@@ -51,7 +51,8 @@ window.HERO_SLIDES = [
   var n = slides.length;
   if (!n) return;
 
-  var DURATION = 650;          // ms — igual ao CSS (--hero-dur)
+  // duração vem do CSS (--hero-dur): 650ms no desktop (cinematográfico), 320ms no touch/celular
+  var cssDur = function () { return parseFloat(getComputedStyle(hero).getPropertyValue("--hero-dur")) || 650; };
   var AUTOPLAY = 7000;         // ms
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)");
   var fine = window.matchMedia("(hover: hover) and (pointer: fine)");
@@ -81,6 +82,11 @@ window.HERO_SLIDES = [
     fig.appendChild(img);
     stage.appendChild(fig);
     return fig;
+  });
+
+  cards.forEach(function (c) {
+    var im = c.querySelector("img");
+    if (im && im.decode) im.decode().catch(function () {});
   });
 
   function posOf(i) {
@@ -121,16 +127,21 @@ window.HERO_SLIDES = [
     if (autoplayOn()) progress.classList.add("is-running");
   }
 
+  var pending = 0;                                  // 1 gesto feito durante a animação entra na fila
   function go(dir) {
-    if (busy || n < 2) return;
-    busy = true;
+    if (n < 2) return;
+    if (busy) { pending = dir; return; }
+    busy = true; pending = 0;
     hero.classList.add("is-moving");
     hero.setAttribute("data-dir", dir > 0 ? "next" : "prev");
     current = (current + dir + n) % n;             // circular
     paint();
     hero.dispatchEvent(new Event("hero:change"));
     schedule();
-    setTimeout(function () { busy = false; hero.classList.remove("is-moving"); }, reduce.matches ? 60 : DURATION);
+    setTimeout(function () {
+      busy = false; hero.classList.remove("is-moving");
+      if (pending) { var d = pending; pending = 0; go(d); }
+    }, reduce.matches ? 60 : cssDur());
   }
   var next = function () { go(1); };
   var prev = function () { go(-1); };
@@ -164,13 +175,17 @@ window.HERO_SLIDES = [
     if (e.target.closest("a, button")) return;        // toque em botão não é swipe
     pid = e.pointerId; sx = e.clientX; sy = e.clientY; st = performance.now();
   });
-  hero.addEventListener("pointerup", function (e) {
+  // dispara DURANTE o movimento (não espera soltar o dedo): resposta imediata
+  var SWIPE_MIN = 28;                                // px horizontais
+  hero.addEventListener("pointermove", function (e) {
     if (e.pointerId !== pid) return;
-    pid = null;
-    var dx = e.clientX - sx, dy = e.clientY - sy, dt = performance.now() - st;
-    // horizontal claro: ≥ 45px, bem mais horizontal que vertical e gesto curto (não é toque parado)
-    if (Math.abs(dx) >= 45 && Math.abs(dx) > Math.abs(dy) * 1.4 && dt < 900) (dx < 0 ? next : prev)();
+    var dx = e.clientX - sx, dy = e.clientY - sy;
+    if (Math.abs(dx) >= SWIPE_MIN && Math.abs(dx) > Math.abs(dy) * 1.2) {
+      pid = null;                                    // um gesto = uma troca
+      (dx < 0 ? next : prev)();
+    }
   });
+  hero.addEventListener("pointerup", function (e) { if (e.pointerId === pid) pid = null; });
   hero.addEventListener("pointercancel", function () { pid = null; });
 
   // ---- RODA DO MOUSE / TRACKPAD (desktop) — sem prender a página ----
@@ -179,7 +194,7 @@ window.HERO_SLIDES = [
   // Um gesto = uma troca: eventos do mesmo gesto (inércia do trackpad) são absorvidos.
   var gestureFromTop = false, gestureUsed = false, gestureAcc = 0, lastWheel = 0;
   var WHEEL_GAP = 300;        // ms sem eventos = gesto novo
-  var COOLDOWN = 750;         // ms após uma troca em que a rolagem é absorvida (animação de 650ms + folga)
+  var COOLDOWN = 750;      // (desktop)         // ms após uma troca em que a rolagem é absorvida (animação de 650ms + folga)
   var lastChange = -1e9;
   var WHEEL_MIN = 28;         // deslocamento mínimo para contar como intenção
   function atTop() { return window.scrollY <= 2 && hero.getBoundingClientRect().top >= -2; }
