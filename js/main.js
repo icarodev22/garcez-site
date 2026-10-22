@@ -197,7 +197,7 @@
     var mode = "loop", bounceDir = -1, maxShift = 0;
     var gGap = 0, gEdge = 0;
 
-    var baseSpeed = function () { return window.innerWidth < 768 ? 30 : 36; }; // px/s
+    var baseSpeed = function () { return window.innerWidth < 768 ? 46 : 44; }; // px/s
     var touchDrag = false;
     var kids = function () { return track.children; };
 
@@ -260,7 +260,7 @@
         if (mode === "bounce" && maxShift < 2) target = 0;
       }
       // aproxima a velocidade do alvo: inércia ao soltar, rampa ao retomar
-      var rate = now < holdUntil ? 2.4 : 1.1;
+      var rate = now < holdUntil ? 2.0 : 2.2;      // desacelera suave ao soltar; retoma rápido
       gvel += (target - gvel) * (1 - Math.exp(-dt * rate));
       if (Math.abs(gvel) > 0.02) move(gvel * dt);
     }
@@ -326,12 +326,14 @@
       gallery.classList.remove("is-dragging");
       if (performance.now() - lt > 120) dvel = 0;           // soltou parado
       gvel = Math.max(-3200, Math.min(3200, dvel * (touchDrag ? 1.15 : 1)));  // inércia natural
-      holdUntil = performance.now() + (touchDrag ? 1000 : 1800);
+      holdUntil = performance.now() + (touchDrag ? 700 : 1400);
       gLast = 0;
     }
     gallery.addEventListener("pointerup", endDrag);
     gallery.addEventListener("pointercancel", endDrag);
-    gallery.addEventListener("lostpointercapture", endDrag);
+    // só quando a PRÓPRIA galeria perde a captura: no toque, o aviso de captura perdida da foto
+    // (que o navegador prende ao dedo) sobe até aqui e encerrava o arraste no 1º movimento
+    gallery.addEventListener("lostpointercapture", function (e) { if (e.target === gallery) endDrag(); });
     gallery.addEventListener("dragstart", function (e) { e.preventDefault(); });
 
     // trackpad / roda horizontal
